@@ -1,0 +1,5 @@
+# n8n writes these next to the workflow export when you use the CLI
+.n8n/
+*.sqlite
+*.sqlite-journal
+.env

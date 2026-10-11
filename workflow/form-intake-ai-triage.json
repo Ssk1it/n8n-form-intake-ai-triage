@@ -1,0 +1,469 @@
+{
+  "name": "Form Intake - AI Triage - Sheets + Alerts",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "intake-form",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "aa000001-1111-4111-8111-000000000001",
+      "name": "Webhook - Intake Form",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1020,
+        300
+      ],
+      "webhookId": "intake-form"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body ?? {};\nconst required = ['name', 'email', 'message'];\nconst missing = required.filter((f) => !String(body[f] ?? '').trim());\n\nif (missing.length) {\n  return [{ json: { valid: false, missing, raw: body } }];\n}\n\nreturn [{\n  json: {\n    valid: true,\n    name: String(body.name).trim(),\n    email: String(body.email).trim().toLowerCase(),\n    company: String(body.company ?? 'n/a').trim(),\n    message: String(body.message).trim(),\n    receivedAt: new Date().toISOString(),\n  },\n}];"
+      },
+      "id": "aa000002-1111-4111-8111-000000000002",
+      "name": "Validate & Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-valid",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "aa000003-1111-4111-8111-000000000003",
+      "name": "IF - Required Fields OK",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are an intake triage assistant. Read the submission and reply with JSON only, using these keys:\n- urgency: \"urgent\" or \"normal\"\n- category: a 2-4 word label\n- summary: one sentence for the sales team\n- suggestedReply: a short, polite reply to the sender\n\nName: {{ $json.name }}\nCompany: {{ $json.company }}\nEmail: {{ $json.email }}\nMessage: {{ $json.message }}",
+              "role": "system"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {}
+      },
+      "id": "aa000004-1111-4111-8111-000000000004",
+      "name": "OpenAI - Triage & Summary",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.1,
+      "position": [
+        -300,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cond-urgent",
+                    "leftValue": "={{ $json.message.content ? JSON.parse($json.message.content).urgency : $json.urgency }}",
+                    "rightValue": "urgent",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "urgent"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cond-normal",
+                    "leftValue": "={{ $json.message.content ? JSON.parse($json.message.content).urgency : $json.urgency }}",
+                    "rightValue": "normal",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "normal"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "aa000005-1111-4111-8111-000000000005",
+      "name": "Switch - Route by Urgency",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -60,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "receivedAt": "={{ $json.receivedAt ?? $now.toISO() }}",
+            "name": "={{ $json.name }}",
+            "email": "={{ $json.email }}",
+            "company": "={{ $json.company }}",
+            "summary": "={{ $json.summary }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "aa000006-1111-4111-8111-000000000006",
+      "name": "Google Sheets - Append Lead",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        200,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#leads",
+          "mode": "name"
+        },
+        "text": "=New {{ $json.urgency || 'normal' }} lead: {{ $json.name }} ({{ $json.company }})\n{{ $json.summary }}\nReceived: {{ $json.receivedAt }}",
+        "otherOptions": {}
+      },
+      "id": "aa000007-1111-4111-8111-000000000007",
+      "name": "Slack - Notify Team",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        460,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.email }}",
+        "subject": "=Thanks for reaching out, {{ $json.name }}",
+        "message": "={{ $json.suggestedReply }}\n\n-- Automated acknowledgement, sent on behalf of the team. A human will follow up shortly.",
+        "options": {}
+      },
+      "id": "aa000008-1111-4111-8111-000000000008",
+      "name": "Gmail - Auto Acknowledgement",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        720,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#alerts",
+          "mode": "name"
+        },
+        "text": "=Submission rejected - missing required fields: {{ $json.missing.join(', ') }}",
+        "otherOptions": {}
+      },
+      "id": "aa000009-1111-4111-8111-000000000009",
+      "name": "Slack - Alert Invalid Input",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        -300,
+        520
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "aa000010-1111-4111-8111-000000000010",
+      "name": "Error Trigger - On Failure",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1020,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 30,
+        "unit": "seconds"
+      },
+      "id": "aa000011-1111-4111-8111-000000000011",
+      "name": "Wait - Backoff 30s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -780,
+        760
+      ],
+      "webhookId": "backoff-30s"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.example.com/retry",
+        "sendBody": true,
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "aa000012-1111-4111-8111-000000000012",
+      "name": "HTTP - Retry Original Call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -540,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#alerts",
+          "mode": "name"
+        },
+        "text": "=Workflow run failed after retry. Node: {{ $json.execution?.lastNodeExecuted }}\nError: {{ $json.execution?.error?.message }}",
+        "otherOptions": {}
+      },
+      "id": "aa000013-1111-4111-8111-000000000013",
+      "name": "Slack - Alert Run Failed",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        -300,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Form Intake - AI Triage\n\nWebhook receives the form POST, validates required fields, asks an LLM to classify urgency + write a summary and a reply draft, then routes the record to Sheets, Slack and an acknowledgement email.\n\n**Error branch (bottom row):** Error Trigger -> 30s backoff -> retry the call -> alert #alerts. Credentials are stored in n8n, never in the workflow.",
+        "height": 480,
+        "width": 420,
+        "color": 5
+      },
+      "id": "aa000014-1111-4111-8111-000000000014",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        760,
+        560
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook - Intake Form": {
+      "main": [
+        [
+          {
+            "node": "Validate & Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Normalize": {
+      "main": [
+        [
+          {
+            "node": "IF - Required Fields OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Required Fields OK": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Triage & Summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack - Alert Invalid Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Triage & Summary": {
+      "main": [
+        [
+          {
+            "node": "Switch - Route by Urgency",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch - Route by Urgency": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Append Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Sheets - Append Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Append Lead": {
+      "main": [
+        [
+          {
+            "node": "Slack - Notify Team",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Notify Team": {
+      "main": [
+        [
+          {
+            "node": "Gmail - Auto Acknowledgement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger - On Failure": {
+      "main": [
+        [
+          {
+            "node": "Wait - Backoff 30s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait - Backoff 30s": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Retry Original Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Retry Original Call": {
+      "main": [
+        [
+          {
+            "node": "Slack - Alert Run Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "demo"
+  },
+  "id": "TriageForm0001",
+  "active": false
+}
